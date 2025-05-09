@@ -1,7 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from transformers import pipeline
+from gtts import gTTS
 import logging
+import uuid
+import os
+from fastapi.responses import FileResponse
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +56,27 @@ async def translate_text_endpoint(lang: str, text_in: TextIn):
             logger.error(f"Translation failed for words {i+1}-{i+max_words} with error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Translation failed for words {i+1}-{i+max_words}.")
 
+    translated_text = translated_text.strip()
+
+    # Convert to speech
+    try:
+        tts = gTTS(text=translated_text, lang='hi' if lang == 'hindi' else 'ur' if lang == 'urdu' else 'ml' if lang == 'malayalam' else 'mr')
+        file_name = f"tts_{uuid.uuid4().hex}.mp3"
+        tts.save(file_name)
+    except Exception as e:
+        logger.error(f"TTS conversion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Text-to-speech conversion failed.")
+
     return {
         "language": lang.capitalize(),
-        "translated_text": translated_text.strip()
+        "translated_text": translated_text,
+        "audio_file": file_name
     }
+
+@app.get("/audio/{file_name}")
+async def get_audio(file_name: str):
+    path = f"./{file_name}"
+    if os.path.exists(path):
+        return FileResponse(path, media_type="audio/mpeg", filename=file_name)
+    else:
+        raise HTTPException(status_code=404, detail="Audio file not found")
