@@ -20,7 +20,7 @@ language_models = {
     "urdu": "Helsinki-NLP/opus-mt-en-ur",
 }
 
-# Preload models for faster access
+# Preload models
 translators = {
     lang: pipeline("translation", model=model)
     for lang, model in language_models.items()
@@ -32,29 +32,27 @@ def read_root():
 
 @app.post("/translate/{lang}")
 async def translate_text_endpoint(lang: str, text_in: TextIn):
-    # Check if the requested language is supported
     translator = translators.get(lang)
     if not translator:
         logger.error(f"Model for '{lang}' could not be loaded or is unsupported.")
         raise HTTPException(status_code=400, detail=f"Model for '{lang}' could not be loaded or is unsupported.")
-    
-    # Handle long text input and truncate if it exceeds the max length (512 tokens)
-    input_text = text_in.text
-    max_input_length = 512  # Token limit for the models
-    
-    # Tokenize the input text and check if it's too long
-    if len(input_text.split()) > max_input_length:
-        logger.info(f"Input text is too long, truncating to {max_input_length} tokens.")
-        input_text = ' '.join(input_text.split()[:max_input_length])  # Truncate text
 
-    try:
-        # Perform translation
-        translated = translator(input_text, max_length=512)
-        return {
-            "language": lang.capitalize(),
-            "translated_text": translated[0]['translation_text']
-        }
-    except Exception as e:
-        # Log the error if translation fails
-        logger.error(f"Translation failed for '{lang}' with error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Translation failed for '{lang}'.")
+    input_text = text_in.text
+    words = input_text.split()
+    max_words = 100
+    translated_text = ""
+
+    for i in range(0, len(words), max_words):
+        chunk = " ".join(words[i:i+max_words])
+        try:
+            logger.info(f"Translating words {i+1} to {min(i+max_words, len(words))}")
+            translated = translator(chunk, max_length=512)
+            translated_text += translated[0]['translation_text'] + " "
+        except Exception as e:
+            logger.error(f"Translation failed for words {i+1}-{i+max_words} with error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Translation failed for words {i+1}-{i+max_words}.")
+
+    return {
+        "language": lang.capitalize(),
+        "translated_text": translated_text.strip()
+    }
